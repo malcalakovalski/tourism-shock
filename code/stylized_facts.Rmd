@@ -1,0 +1,198 @@
+---
+title: "Your Document Title"
+author: "Document Author"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+
+One useful thing for me would be if you could put together some stylized facts on the characteristics of tourism-dependent economies. To define them you can try using a 5 percent of GDP threshold for the travel trade balance during 2015-19, and then maybe 3 percent. The stylized facts would be average, median, and overall range for GDP per capita, population, current account balance (also 2015-19) and net IIP (all variables in the database). And you can contrast those figures with the figures for the remaining countries. Thank you and happy of course to explain in more detail. 
+```{r}
+librarian::shelf(tidyverse)
+tourism <- readRDS('data/tourism.rds')
+
+# Tourisim dependent is define as crossing a five percent threshold for travel balance during 2015-2019
+tourism_dependent <- 
+  tourism %>%
+  filter(travel_balance_2015_2019 > 5) 
+
+tourism_dependent_summary <-
+  tourism_dependent %>% 
+ 
+  # Stylized facts are average, median, and range for
+  # GDP per capita, population, current acount balance from 2015 to 2019, and 
+  # net international investment position.
+  summarise(across(
+    # Columns to summarise
+    .cols = c(
+      gdp_per_capita_2019,
+      population_2019,
+      current_account_2015_2019,
+      iip_2019
+    ),
+    # Functions to use.
+    # Note: To use multiple functions inside across you can put them in a list!
+    .fns = list(
+      min = min,
+      mean = mean,
+      median = median,
+      max = max
+    ),
+    # Additional arguments to pass on to the list of functions
+    na.rm = TRUE,
+    .names = '{.col}_{.fn}'
+  )) 
+
+
+```
+
+Now that we've calculated the appropriate summary statistics we can do some data wrangling to tidy our data. Our goal is to structure the data so that each row is an observation and each column is a statistics for that observation. We can accomplish this by first pivoting longer on the function names using `tidyr::pivot_longer()` and `tidyr::pivot_wider()`.
+```{r}
+tourism_dependent_summary_long <- 
+  tourism_dependent_summary %>% 
+      pivot_longer(
+      # Pivot on all numeric values
+      cols = where(is.numeric),
+      # What we want our new column names to be
+      names_to = c('variable', 'statistic'),
+      # Alternatively, we can use (.*)_(.*) which is more general.
+      # I'm just being explicit here to show what the .* placeholder is doing!
+      names_pattern = '(.*)_(min|mean|median|max)',
+      values_to = 'value'
+    )
+
+tourism_dependent_summary_wide <- 
+  tourism_dependent_summary_long %>% 
+  # Take the names of the values in the statistic column and turn them into columns.
+  # I.e, we want columns for min, mean, median, max, and range
+  pivot_wider(names_from = statistic, values_from = value) %>% 
+  mutate(range = max - min)
+
+# `%not_in%` <- Negate(`%in%`)
+# 
+
+
+# tourism_dependent_summary_wide %>% 
+#   mutate(range = max - min) %>% 
+#   # Column based selection:
+#   #   select(country, population_2019,gdpd_2019) %>%
+#   # Row based selection:
+#      filter(variable %in% c( 'gdp_per_capita_2019')) %>% 
+#   ggplot(aes(x = fct_reorder(country, (gdpd_2019)),
+#              y  = gdpd_2019,
+#              fill = country)) +
+#   geom_col()  +
+#   coord_flip()
+```
+
+## User defined functions
+
+We want to do the exact same thing but for slightly different specifications. In particular, we want to to see how these numbers change depending on the threshold we choose for tourism dependent and compared to non tourism dependent economies. Therefore, it makes sense to put our cleaning recipe into a user defined function. Think of the function as a black box that saves us from being repetitive. 
+```{r}
+our_summary <- function(data){
+  data %>% 
+    mutate(gdp_per_capita_2019 = gdpd_2019 / population_2019) %>% 
+  # Stylized facts are average, median, and range for
+  # GDP per capita, population, current acount balance from 2015 to 2019, and 
+  # net international investment position.
+  summarise(across(
+    # Columns to summarise
+    .cols = c(
+      gdp_per_capita_2019,
+      population_2019,
+      current_account_2015_2019,
+      iip_2019
+    ),
+    # Functions to use.
+    # Note: To use multiple functions inside across you can put them in a list!
+    .fns = list(
+      min = min,
+      mean = mean,
+      median = median,
+      max = max
+    ),
+    # Additional arguments to pass on to the list of functions
+    na.rm = TRUE,
+    .names = '{.col}_{.fn}'
+  )) %>% 
+       pivot_longer(
+      # Pivot on all numeric values
+      where(is.numeric),
+      # What we want our new column names to be
+      names_to = c('variable', 'statistic'),
+      # Alternatively, we can use (.*)_(.*) which is more general.
+      # I'm just being explicit here to show what the .* placeholder is doing!
+      names_pattern = '(.*)_(min|mean|median|max)',
+      values_to = 'values'
+    ) %>% 
+  # Take the names of the values in the statistic column and turn them into columns.
+  # I.e, we want columns for min, mean, median, max, and range
+  pivot_wider(names_from = statistic, values_from = values) %>% 
+  mutate(range = max - min)
+}
+
+ tourism %>%
+  filter(travel_balance_2015_2019 > 3) %>% 
+   our_summary()
+ 
+  
+  tourism %>%
+  filter(travel_balance_2015_2019 <= 3) %>% 
+   our_summary()
+ 
+ tourism %>%
+  filter(travel_balance_2015_2019 > 5) %>% 
+   our_summary()
+ 
+  tourism %>%
+  filter(travel_balance_2015_2019 <= 5) %>% 
+   our_summary()
+ 
+
+
+```
+
+Lets make some charts comparing these two groups
+```{r}
+# Same thing as below but using dplyr::if_else()
+tourism %>% 
+  mutate(tourism = if_else(travel_balance_2015_2019 > 5,
+                           'dependent',
+                           'independent'),
+         .before = 'country')
+
+
+tourism_dependent <-
+  tourism %>%
+  filter(travel_balance_2015_2019 > 5) %>% 
+   our_summary() %>% 
+  mutate(tourism = 'dependent')
+
+tourism_independent <-
+  tourism %>%
+  filter(travel_balance_2015_2019 <= 5) %>% 
+   our_summary() %>% 
+  mutate(tourism = 'independent')
+
+full_join(tourism_dependent, tourism_independent) %>% 
+  pivot_longer(where(is.numeric),
+               names_to = 'statistic') %>% 
+  ggplot(aes(x = statistic, y = value, fill = tourism)) +
+  geom_col(position = position_dodge2()) +
+  facet_wrap(. ~ variable) +
+  ggthemes::theme_hc() +
+  gghutchins::scale_fill_hutchins(reverse = TRUE)
+```
+
+```{r}
+tourism %>% 
+    filter(travel_balance_2015_2019 > 5) %>% 
+  select(gdp_per_capita_2019,
+      population_2019,
+      current_account_2015_2019,
+      iip_2019) %>% 
+  skimr::skim()
+```
+

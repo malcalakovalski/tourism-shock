@@ -12,7 +12,9 @@ tourism_raw <- haven::read_dta("data/tourism_CA_dataset.dta")
 var_name <- "btv_1519"
 stringr::str_replace(var_name, pattern = '1519', replacement = '2015_2019')
 
-tourism_raw %>%
+tourism <-
+  tourism_raw %>%
+  rename(gdp_per_capita_2019 = gdppc_19) %>%
   # Want to change variables ending in 1519 to be 2015_2019
   rename_with(.cols = ends_with('1519'),
               .fn = ~ stringr::str_replace(string = .x,
@@ -124,5 +126,7 @@ tourism_raw %>%
          service_2014_2019 = serv_2014_2019
 
   )
+
+saveRDS(tourism, 'data/tourism.rds')
 
 
