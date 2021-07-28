@@ -2,7 +2,7 @@
 # Setup -------------------------------------------------------------------
 library('tidyverse')
 library(readxl)
-librarian::shelf(tidyverse, readxl, countrycode, glue)
+librarian::shelf(tidyverse, readxl, countrycode, glue, forcats)
 services_raw <- read_excel("data/BOPS data_services.xlsx",
                                  sheet = "Travel_net_USD", skip = 4)
 
@@ -282,6 +282,8 @@ importers <-
   select(country, travel_balance_1519, travel_balance_1519_share) %>%
   arrange(travel_balance_1519) %>%
   head(10) %>%
+  mutate(travel_balance_1519 = -travel_balance_1519,
+         travel_balance_1519_share = -travel_balance_1519_share) %>%
   add_flags()
 
 importers_tbl <-
@@ -384,7 +386,8 @@ full <-  bind_rows(in_sample, not_sample) %>%
 large_travel_table <-
   full %>%
   group_by(sample) %>%
-    gt(groupname_col = 'sample') %>%
+    gt(groupname_col = 'sample',
+       rowname_col = 'country') %>%
     tab_style(
       locations = cells_title(groups = "title"),
       style     = list(
@@ -392,19 +395,19 @@ large_travel_table <-
       )
     ) %>%
   summary_rows(
-    groups = 'Sample countries',
+    groups = TRUE,
     columns = where(is.numeric),
     fns = list(
       Mean = ~mean(., na.rm = TRUE),
       Median = ~median(.,na.rm = TRUE)),
-    decimals = 1
+    decimals = 1,
   ) %>%
 
   opt_row_striping() %>%
 
   cols_label(travel_balance_1519_share = html('Travel balance (percent of GDP)<br>\tAverage 2015-2019'),
-             population_2019 = html('Population<br>2019'),
-             gdp_2019 = html('GDP<br>2019'),
+             population_2019 = html('Population<br>millions<br>2019'),
+             gdp_2019 = html('GDP<br>billions<br>2019'),
              country = html('Country<br>'))%>%
   cols_align(
     align = "left",
@@ -417,7 +420,6 @@ large_travel_table <-
   tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
   fmt_currency(c(gdp_2019)) %>%
   fmt_number(columns = c(population_2019),
-             pattern = '{x} M',
              decimals = 1) %>%
   fmt_number(c(travel_balance_1519_share),
              decimals = 1) %>%
@@ -490,7 +492,8 @@ revenues %>%
 
 # Table 4 -----------------------------------------------------------------
 
-tourism <- readRDS('data/tourism.rds')
+tourism <- readRDS('data/tourism.rds') %>%
+  filter(country != 'Euro Area')
 
 our_summary(balance, c('current_account'))
 names(tourism)
@@ -499,9 +502,9 @@ balance <- tourism %>%
          current_account_2015_2019,
          goods_balance_2015_2019,
          oil_balance_2015_2019,
+         travel_balance_2015_2019,
          services_net_travel_balance_2015_2019,
          transportation_balance_2015_2019,
-         travel_balance_2015_2019,
          primary_income_balance_2015_2019,
          secondary_income_balance_2015_2019) %>%
   rename_with(.cols = ends_with('2019'),
@@ -518,8 +521,10 @@ balance_summary <-
   psych::describe(quant=c(.25,.75)) %>%
   as_tibble(rownames="category")  %>%
   print() %>%
-  select(category, Observations = n, Min = min, Q25 = Q0.25, Mean = mean, Median = median, Q75 = Q0.75,
-         Max = max, `Standard Deviation` = sd) %>%
+  select(category,
+         Observations = n,
+         Min = min, Q25 = Q0.25,  Median = median, Q75 = Q0.75,
+         Max = max, Mean = mean, `St. Dev.` = sd) %>%
   mutate(category = snakecase::to_sentence_case(category))
 
 balance_tbl <-
@@ -531,12 +536,16 @@ balance_tbl <-
       cell_text(weight = "bold", size = 24)
     )
   ) %>%
+  cols_label(category = '') %>%
+
   opt_row_striping() %>%
   tab_header(title = md('Tourism-dependent economies: stylized facts'),
              subtitle = md('Percent of GDP, 2015-19 averages')) %>%
   tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
   fmt_number(where(is.numeric),
              decimals = 1) %>%
+  fmt_number(c(Observations),
+             decimals = 0) %>%
   opt_all_caps() %>%
   opt_table_font(
     font = list(
@@ -576,9 +585,151 @@ balance_tbl <-
     data_row.padding = px(5),
     source_notes.font.size = 12,
     heading.align = "center",
-    row_group.background.color = "#D0D3D4")
+    row_group.background.color = "#D0D3D4") %>%
+  tab_style(
+    style = cell_text(indent = px(25),
+                      style = 'italic'),
+    locations = cells_body(
+      columns = c(category),
+
+      rows = category %in% c("Oil balance", 'Transportation balance')
+    )
+  )
 
 gtsave(balance_tbl, 'tables/04_stylized_facts.png')
+
+
+# Table 5 -----------------------------------------------------------------
+islands <- c('Turks and Caicos Islands',
+             'Sint Maarten, Kingdom of the Netherlands',
+             'Anguilla',
+             'Cayman Islands',
+             'Curaçao, Kingdom of the Netherlands',
+             'French Polynesia')
+creditor_position <-
+  tourism %>%
+  select(country, tourism_total, iip_2019, gdp_per_capita_2019,
+         travel_balance = travel_balance_2015_2019,
+
+         tourism_travel) %>%
+  mutate(tourism_type = case_when(travel_balance >= 5 ~ 'High tourism revenues',
+                                  travel_balance > 0  ~ 'Positive tourism revenues',
+                                  travel_balance <= 0 ~ 'Negative tourism revenues'),
+         .after = 'country') %>%
+  mutate(iip_2019 = 100 * iip_2019) %>%
+  filter(country %notin% islands)
+
+
+
+creditor_position %>%
+  select(tourism_type, iip_2019, gdp_per_capita_2019) %>%
+  group_by(tourism_type) %>%
+  skimr::skim()
+  count(tourism_type)
+
+
+
+creditor_stats <-
+  creditor_position %>%
+  group_by(tourism_type) %>%
+
+  summarise(across(
+    # Columns to summarise
+    .cols = c(
+      gdp_per_capita_2019,
+      iip_2019
+    ),
+    # Functions to use.
+    # Note: To use multiple functions inside across you can put them in a list!
+    .fns = list(
+      obs = ~ n(),
+      min = min,
+      q25 = ~ quantile(.x, 0.25, na.rm = TRUE),
+      median = median,
+      q75 = ~ quantile(.x, 0.75, na.rm = TRUE),
+      max = max,
+      mean = mean,
+      sd = sd
+    ),
+    # Additional arguments to pass on to the list of functions
+    na.rm = TRUE,
+    .names = '{.col}_{.fn}'
+  ))
+
+
+
+creditor_stats <-
+  creditor_stats %>%
+  pivot_longer(
+    # Pivot on all numeric values
+    where(is.numeric),
+    # What we want our new column names to be
+    names_to = c('variable', 'statistic'),
+    # Alternatively, we can use (.*)_(.*) which is more general.
+    # I'm just being explicit here to show what the .* placeholder is doing!
+    names_pattern = '(.*)_(obs|min|q25|mean|median|q75|max)',
+    values_to = 'values'
+  ) %>%
+  drop_na() %>%
+  # Take the names of the values in the statistic column and turn them into columns.
+  # I.e, we want columns for min, mean, median, max, and range
+  pivot_wider(names_from = statistic, values_from = values) %>%
+  arrange(desc(variable),factor(tourism_type, levels = c('High tourism revenues', 'Positive tourism revenues', 'Negative tourism revenues')))
+creditor_tbl <-
+  creditor_stats %>%
+  mutate(obs = c(35, 81, 66, 37, 81, 67)) %>%
+  gt(
+     rowname_col = 'tourism_type') %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+
+  opt_row_striping() %>%
+  tab_header(title = md('Size and creditor position: tourism-dependent economies and other economies'),
+             subtitle = md('Percent of GDP, 2015-19 averages')) %>%
+  tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
+  fmt_number(where(is.numeric),
+             decimals = 1) %>%
+  fmt_number(c(obs),
+             decimals = 0) %>%
+  opt_all_caps() %>%
+  opt_table_font(
+    font = list(
+      google_font("Roboto"),
+      default_fonts()))  %>%
+  tab_style(
+    locations = cells_column_labels(columns = everything()),
+    style     = list(
+      #Give a thick border below
+      cell_borders(sides = "bottom", weight = px(3)),
+      #Make text bold
+      cell_text(weight = "bold")
+    )
+  ) %>%
+  tab_options(
+    column_labels.border.top.width = px(5),
+    column_labels.border.top.color = "transparent",
+    table.border.top.color = "transparent",
+    table.border.bottom.color = "transparent",
+    heading.background.color = '#003A79',
+    data_row.padding = px(5),
+    source_notes.font.size = 12,
+    heading.align = "center",
+    row_group.background.color = "#D0D3D4") %>%
+  tab_row_group(label = html('GDP per capita<br>(2019)'),
+                rows = variable == 'gdp_per_capita_2019') %>%
+  tab_row_group(label = html('International investment position<br>(percent of GDP, 2019)'),
+                rows = variable == 'iip_2019') %>%
+
+  cols_hide(variable) %>%
+  fmt_number(columns = where(is.numeric),
+             decimals = 0,
+             drop_trailing_zeros = TRUE)
+
+gtsave(creditor_tbl, 'tables/05_creditor_position.png')
 
 # Figures -----------------------------------------------------------------
 library('ggtext')
