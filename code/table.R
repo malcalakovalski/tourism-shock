@@ -616,8 +616,7 @@ creditor_position <-
                                   travel_balance > 0  ~ 'Positive tourism revenues',
                                   travel_balance <= 0 ~ 'Negative tourism revenues'),
          .after = 'country') %>%
-  mutate(iip_2019 = 100 * iip_2019) %>%
-  filter(country %notin% islands)
+  mutate(iip_2019 = 100 * iip_2019)
 
 
 
@@ -667,7 +666,7 @@ creditor_stats <-
     names_to = c('variable', 'statistic'),
     # Alternatively, we can use (.*)_(.*) which is more general.
     # I'm just being explicit here to show what the .* placeholder is doing!
-    names_pattern = '(.*)_(obs|min|q25|mean|median|q75|max)',
+    names_pattern = '(.*)_(obs|min|q25|mean|median|q75|max|sd)',
     values_to = 'values'
   ) %>%
   drop_na() %>%
@@ -731,6 +730,201 @@ creditor_tbl <-
 
 gtsave(creditor_tbl, 'tables/05_creditor_position.png')
 
+
+
+# Table 5B: Economies with largest net international transportation revenues in percent of GDP ------------------------------------------------
+transportation_tbl <- tourism %>%
+  select(country, transportation_balance_2015_2019) %>%
+  arrange(desc(transportation_balance_2015_2019)) %>%
+  head(10) %>%
+  add_flags() %>%
+  gt() %>%
+  text_transform(
+    #Apply a function to a column
+    locations = cells_body(c(flag_URL)),
+    fn = function(x) {
+      #Return an image of set dimensions
+      web_image(
+        url = x,
+        height = 20
+      )
+    }
+  ) %>%
+  #Hide column header flag_URL and reduce width
+  cols_width(c(flag_URL) ~ px(30)) %>%
+  cols_label(flag_URL = "") %>%
+  cols_hide(c(iso2)) %>%
+  cols_align(
+    align = "left",
+    columns = everything()
+  ) %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+fmt_number(c(transportation_balance_2015_2019),
+           decimals = 1) %>%
+
+  opt_row_striping() %>%
+
+  cols_label(transportation_balance_2015_2019 = html('Transportation balance<br>(percent of GDP)<br>\tAverage 2015-2019'),
+             country = html('Country<br>'))%>%
+  cols_align(
+    align = "left",
+    columns = c(country, transportation_balance_2015_2019)
+  )
+
+temp %>%
+  tab_header(title = md('Economies with large net revenues from international travel<br>(in percent of GDP)')) %>%
+  tab_source_note(md('**Source**: Author’s calculation based on IMF, Balance of Payments Statistics, and national sources')) %>%
+  opt_all_caps() %>%
+  opt_table_font(
+    font = list(
+      google_font("Roboto"),
+      default_fonts()))  %>%
+  tab_style(
+    locations = cells_column_labels(columns = everything()),
+    style     = list(
+      #Give a thick border below
+      cell_borders(sides = "bottom", weight = px(3)),
+      #Make text bold
+      cell_text(weight = "bold")
+    )
+  ) %>%
+  #Apply different style to the title
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+
+
+  tab_options(
+    column_labels.border.top.width = px(5),
+    column_labels.border.top.color = "transparent",
+    table.border.top.color = "transparent",
+    table.border.bottom.color = "transparent",
+    heading.background.color = '#003A79',
+    data_row.padding = px(5),
+    source_notes.font.size = 12,
+    heading.align = "left",
+    row_group.background.color = "#D0D3D4")
+
+gtsave(transportation_tbl, 'tables/05_transportation_revenues.png')
+# Table 6: Tourism Share--------------------------------------------------------
+
+tourism_share <- readxl::read_xlsx('data/tables.xlsx',
+                                   sheet = 'tourism_tidy')
+
+share_tbl <-
+  tourism_share %>%
+  gt(groupname_col   = 'tourism',
+     rowname_col = 'country_group') %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+
+  opt_row_striping() %>%
+  tab_header(title = md('Share of tourism in GDP: stylized facts'),
+             subtitle = md('Percent of GDP, 2015-19 averages')) %>%
+  tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics, and national sources') %>%
+  fmt_number(where(is.numeric),
+             decimals = 1) %>%
+  fmt_number(c(obs),
+             decimals = 0) %>%
+  opt_all_caps() %>%
+  opt_table_font(
+    font = list(
+      google_font("Roboto"),
+      default_fonts()))  %>%
+  tab_style(
+    locations = cells_column_labels(columns = everything()),
+    style     = list(
+      #Give a thick border below
+      cell_borders(sides = "bottom", weight = px(3)),
+      #Make text bold
+      cell_text(weight = "bold")
+    )
+  ) %>%
+  tab_options(
+    column_labels.border.top.width = px(5),
+    column_labels.border.top.color = "transparent",
+    table.border.top.color = "transparent",
+    table.border.bottom.color = "transparent",
+    heading.background.color = '#003A79',
+    data_row.padding = px(5),
+    source_notes.font.size = 12,
+    heading.align = "center",
+    row_group.background.color = "#D0D3D4")
+
+gtsave(share_tbl, 'tables/06_tourism_share.png')
+
+
+# Table 7: Growth surprise ------------------------------------------------
+
+
+growth <- readxl::read_xlsx('data/tables.xlsx',
+                                   sheet = 'surprise_tidy')
+
+surprise_tbl <-
+  growth %>%
+  gt(
+     rowname_col = 'country_group') %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+  cols_hide(c(tourism)) %>%
+  tab_row_group(label = html('Other'),
+                rows = tourism == 'other') %>%
+  tab_row_group(label = html('High tourism'),
+                rows = tourism == 'high') %>%
+  tab_row_group(label = html(''),
+                rows = tourism == 'all') %>%
+
+  opt_row_striping() %>%
+  tab_header(title = md('Growth Surprise in 2020')) %>%
+  tab_source_note(md('**Note**: High tourism countries are those with an average surplus in international travel above 5 percent of GDP during 2015-19 (see Table 1). For a few countries balance of payments data on international travel is not available: hence the observations in “high tourism” and “other countries” are fewer than those for all countries.<br><br>
+**Source**: Author’s calculation based on IMF (2020), (2021) and national sources.
+')) %>%
+  fmt_number(where(is.numeric),
+             decimals = 1) %>%
+  fmt_number(c(obs),
+             decimals = 0) %>%
+  opt_all_caps() %>%
+  opt_table_font(
+    font = list(
+      google_font("Roboto"),
+      default_fonts()))  %>%
+  tab_style(
+    locations = cells_column_labels(columns = everything()),
+    style     = list(
+      #Give a thick border below
+      cell_borders(sides = "bottom", weight = px(3)),
+      #Make text bold
+      cell_text(weight = "bold"))) %>%
+  tab_options(
+    column_labels.border.top.width = px(5),
+    column_labels.border.top.color = "transparent",
+    table.border.top.color = "transparent",
+    table.border.bottom.color = "transparent",
+    heading.background.color = '#003A79',
+    data_row.padding = px(5),
+    source_notes.font.size = 12,
+    heading.align = "center",
+    row_group.background.color = "#D0D3D4")
+
+
+
+gtsave(surprise_tbl, 'tables/07_growth_surprise.png')
 # Figures -----------------------------------------------------------------
 library('ggtext')
 library('showtext')
@@ -831,3 +1025,104 @@ adjustment %>%
     bg = '#FAFAFA'
   )
 
+
+# Fig2: Services share ----------------------------------------------------
+
+
+  credit <-
+    readr::read_rds('data/credit') %>%
+
+    group_by(year) %>%
+    mutate(gdp = sum(gdp, na.rm = TRUE),
+           year = as.numeric(year)) %>%
+    summarise(across(c(ends_with('credit')),
+                     ~sum(.x, na.rm = TRUE) / 1e4,
+                     na.rm = TRUE),
+              gdp) %>%
+    mutate(service_credit = service_credit - travel_credit - transportation_credit) %>%
+    mutate(across(ends_with('credit'),
+                  ~  1000 * .x / gdp)) %>%
+    ungroup() %>%
+    distinct()
+
+
+
+  p1 <- credit %>%
+    pivot_longer(-c(year, gdp)) %>%
+    ggplot(aes(x = year, y = value, fill = name, label = signif(value, 2))) +
+    geom_col(
+             position = 'stack')
+
+
+
+p1 +
+    ggbrookings::scale_fill_brookings('alternative',
+                                      name = '',
+                                      labels = c('Other services',
+                                                 'Transport',
+                                                 'Travel')) +
+  guides(fill = guide_legend(reverse=T))+
+    labs(title = 'Export of Services',
+         subtitle = 'Percent of world GDP',
+         x = NULL,
+         y = NULL) +
+  scale_x_continuous(breaks = seq(2005, 2020, 2)) +
+
+    ggthemes::theme_tufte() +
+    theme(
+      text =
+        element_text(
+          family = "Roboto",
+          face = "plain",
+          colour = "black",
+          size = 16,
+          lineheight = 0.9,
+          hjust = 0.5,
+          vjust = 0.5,
+          angle = 0,
+          margin = margin(),
+          debug = FALSE
+        ),
+      plot.title =  ggtext::element_textbox_simple(
+        # font size "large"
+        size = rel(1.2),
+        color = "#003A79",
+        face = "bold",
+        hjust = 0,
+        vjust = 1,
+        margin = margin(b = 8)
+      ),
+      plot.title.position = "plot",
+      plot.subtitle = ggtext::element_textbox_simple(
+        # font size "regular"
+        hjust = 0,
+
+        vjust = 1,
+        margin = margin(b = 8)
+      ),
+      plot.caption = ggtext::element_textbox_simple(
+        # font size "small"
+        size = rel(0.8),
+        vjust = 1,
+        family = "Roboto Light",
+        color = "#666666",
+        hjust = 0,
+        margin = margin(t = 8)
+      ),
+      plot.caption.position = "plot",
+      plot.background =    element_rect(colour = "#FAFAFA"),
+      axis.text.y = element_text(size = 14, hjust = 1),
+      plot.margin = margin(rep(15, 4)),
+      panel.background = element_rect(color = "#FAFAFA"),
+      legend.position = 'top')
+
+
+ggsave(
+  here::here('figures', 'export_services.png'),
+  width = 85 * (14 / 5),
+  height = 53 * (14 / 5),
+  units = 'mm',
+  dpi = 300,
+  type = 'cairo',
+  bg = '#FAFAFA'
+)

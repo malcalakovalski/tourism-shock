@@ -4,7 +4,8 @@
 librarian::shelf('tidyverse', 'stringr')
 
 tourism_raw <- haven::read_dta("data/tourism_CA_dataset.dta")
-
+tourism_raw %>% View()
+`%notin%` <- Negate(`%in%`)
 
 # Cleaning names ----------------------------------------------------------
 
@@ -130,3 +131,37 @@ tourism <-
 saveRDS(tourism, 'data/tourism.rds')
 
 
+# Credit time series ------------------------------------------------------
+
+
+travel_credit <- read_excel("data/BOPS_data_services.xlsx",
+                                 sheet = "Trav_cr", range = "A5:Q208") %>%
+  pivot_longer(where(is.numeric),
+               names_to = 'year',
+               values_to = 'travel_credit')
+
+transportation_credit <- read_excel("data/BOPS_data_services.xlsx",
+                            sheet = "Trans_cr", range = "A5:Q208") %>%
+  pivot_longer(where(is.numeric),
+               names_to = 'year',
+               values_to = 'transportation_credit')
+
+service_credit <- read_excel("data/BOPS_data_services.xlsx",
+                            sheet = "Serv_cr", range = "A5:Q208") %>%
+  pivot_longer(where(is.numeric),
+               names_to = 'year',
+               values_to = 'service_credit')
+
+gdp <- read_excel('data/gdp.xlsx') %>%
+  pivot_longer(where(is.numeric),
+               names_to = 'year',
+               values_to = 'gdp')
+not_in_sample <- c('Curaçao and Sint Maarten', 'Eastern Caribbean Currency Union','Euro Area')
+credit <- inner_join(travel_credit,
+                     transportation_credit,
+                     by = c('country', 'year')) %>%
+  inner_join(service_credit, by  =c('country', 'year')) %>%
+  left_join(gdp, by = c('country', 'year')) %>%
+  filter(country %notin% not_in_sample)
+
+readr::write_rds(credit, file = 'data/credit')
