@@ -2,74 +2,144 @@
 # Setup -------------------------------------------------------------------
 library('tidyverse')
 library(readxl)
-librarian::shelf(tidyverse, readxl, countrycode, glue, forcats)
-services_raw <- read_excel("data/BOPS data_services.xlsx",
-                                 sheet = "Travel_net_USD", skip = 4)
+librarian::shelf(tidyverse, readxl, countrycode, glue, forcats, gt, scales)
+services_raw <- read_excel("data/BOPS_data_services.xlsx",
+                                 sheet = "Travel_net_USD", skip = 3)
+
+
+# Theme -------------------------------------------------------------------
+
+my_theme <- function(data, ...){
+  data %>%
+    opt_row_striping() %>%
+    opt_all_caps() %>%
+    opt_table_font(
+      font = list(
+        google_font("Roboto"),
+        default_fonts()))  %>%
+    tab_style(
+      locations = cells_title(groups = "title"),
+      style     = list(
+        cell_text(weight = "bold", size = 24)
+      )
+    ) %>%
+    cols_align(where(is.numeric),
+               align = 'right') %>%
+    cols_align(where(is.character),
+               align = 'left') %>%
+    tab_style(
+      locations = cells_column_labels(columns = everything()),
+      style     = list(
+        #Give a thick border below
+        cell_borders(sides = "bottom", weight = px(3)),
+        #Make text bold
+        cell_text(weight = "bold")
+      )
+    ) %>%
+    #Apply different style to the title
+    tab_style(
+      locations = cells_title(groups = "title"),
+      style     = list(
+        cell_text(weight = "bold", size = 24)
+      )
+    ) %>%
+
+
+    tab_options(
+      column_labels.border.top.width = px(5),
+      column_labels.border.top.color = "transparent",
+      table.border.top.color = "transparent",
+      table.border.bottom.color = "transparent",
+      heading.background.color = '#003A79',
+      data_row.padding = px(5),
+      source_notes.font.size = 12,
+      heading.align = "center",
+      row_group.background.color = '#D0D3D4',
+      ...)
+
+}
 
 # Cleaning ----------------------------------------------------------------
 
 services <-
   services_raw %>%
-  select(country, starts_with('travel_balance'), population_2019, gdp_2019) %>%
+  select(country, starts_with('travel_balance'), population, gdp) %>%
   filter(country != 'Euro Area')
 
-## Largest in absolute terms
-largest_absolute <-
-  services %>%
-  arrange(desc(travel_balance_1519)) %>%
-  head(5)
-
-## Largest share
-services %>%
+# Table 3: Large travel ---------------------------------------------------
+`%notin%` <- Negate(`%in%`)
+islands <- c('Turks and Caicos Islands',
+             'Sint Maarten, Kingdom of the Netherlands',
+             'Anguilla',
+             'Cayman Islands',
+             'Curaçao, Kingdom of the Netherlands',
+             'French Polynesia')
+in_sample <- services %>%
+  select(country, travel_balance_1519_share, population, gdp) %>%
+  filter(country %notin% islands) %>%
   arrange(desc(travel_balance_1519_share)) %>%
-  head(5)
+  head(38) %>%
+  mutate(sample = 'Sample countries')
 
-## Largest share with population greater than 2 million
-services %>%
-  filter(population > 2) %>%
-  arrange(desc(travel_balance_1519_share)) %>%
-  head(5)
-
-
-## Smallest in absolute terms
+not_sample <-
   services %>%
-  arrange(travel_balance_1519) %>%
-  head(5)
-
-## Smallest share
-services %>%
-  arrange(travel_balance_1519_share) %>%
-  head(5)
-
-## Smallest share with population greater than 2 million
-services %>%
-  filter(population > 2) %>%
-  arrange(travel_balance_1519_share) %>%
-  head(5)
+  select(country, travel_balance_1519_share, population, gdp) %>%
+  filter(country %in% islands) %>%
+  arrange(desc(travel_balance_1519_share)) %>%
+  mutate(sample = 'Not in sample')
 
 
-services_raw %>%
-  select(country, starts_with('travel_balance_1519'), gdp, population) %>%
-  mutate(log_gdp = log2(gdp),
-         log_population = log2(population)) %>%
-  ggplot(aes(y = log_population,
-             x = travel_balance_1519_share,
-
-             label = country)) +
-  geom_point(aes(size = population)) +
-  ggrepel::geom_text_repel()
+full <-  bind_rows(in_sample, not_sample) %>%
+  relocate(sample, .before = everything())
 
 
+large_travel_table <-
+  full %>%
+  group_by(sample) %>%
+  gt(groupname_col = 'sample',
+     rowname_col = 'country') %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+  summary_rows(
+    groups = TRUE,
+    columns = where(is.numeric),
+    fns = list(
+      Mean = ~mean(., na.rm = TRUE),
+      Median = ~median(.,na.rm = TRUE)),
+    decimals = 1,
+  ) %>%
+
+  opt_row_striping() %>%
+
+  cols_label(travel_balance_1519_share = html('Travel balance<br>(percent of GDP)<br>Average 2015-2019'),
+             population = html('Population<br>millions<br>2019'),
+             gdp = html('GDP<br>billions<br>2019'),
+             country = html('Country<br>'))%>%
+  cols_align(
+    align = "left",
+    columns = c(country,
+                travel_balance_1519_share,
+                population,
+                gdp)
+  ) %>%
+  tab_header(title = md('Table 1: Largest Exporters of International Travel Services in percent of GDP')) %>%
+  tab_source_note("**Source:** Author's calculations based on IMF, Balance of Payments Statistics and national sources.") %>%
+  fmt_currency(c(gdp)) %>%
+  fmt_number(columns = c(population),
+             decimals = 1) %>%
+  fmt_number(c(travel_balance_1519_share),
+             decimals = 1) %>%
+  fmt_currency(c(gdp),
+               decimals = 1) %>%
+  my_theme()
+
+gtsave(large_travel_table,
+       'tables/01_large_travel.png')
 # Net travel balance ------------------------------------------------------
-services_raw %>%
-  select(country, starts_with('net'), population) %>%
-  ggplot(aes(x = net_ca_balance,
-             y = net_travel_balance_share,
-             label = country,
-             size = population)) +
-  geom_point() +
-  ggrepel::geom_text_repel()
-
 net <-
   services_raw %>%
   select(country, net_travel_balance_share, population, gdp) %>%
@@ -118,7 +188,6 @@ share <- bind_cols(largest_share, smallest_share) %>%
   mutate(type = '(Share of GDP)',
          .before = everything())
 ## TABLE
-librarian::shelf(gt, scales, glue)
 
 net_travel <-
   bind_rows(share,
@@ -129,6 +198,7 @@ net_travel <-
          negative = if_else(type == '(Share of GDP)',
                           glue('{round(negative, 0)}%'),
                           str_remove(glue('${comma(round(negative))}'),'(.[0]{1,})$' )))
+
 
 net_travel %>%
   group_by(type) %>%
@@ -145,28 +215,10 @@ net_travel %>%
                          net travel balance '),
              subtitle = md('Average from 2015 to 2019')) %>%
   tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
-
-  opt_row_striping() %>%
-  opt_all_caps() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
+my_theme()
 
 
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "center",
-    #Adjust grouped rows to make them stand out
-    row_group.background.color = "#003A79")
-
-
-# Table 1: Exporters ------------------------------------------------------
+# Table 2: Exporters and importers ------------------------------------------------------
 add_flags <- function(data){
   mutate(data,
          iso2 = stringr::str_to_lower(countrycode(sourcevar = country, origin = "country.name", destination = "iso2c", warn = FALSE)),
@@ -195,78 +247,8 @@ exporters_tbl <-
                decimals = 1) %>%
   fmt_number(columns = c(travel_balance_1519_share),
               decimals = 1) %>%
+  my_theme()
 
-
-  opt_all_caps() %>%
-  opt_row_striping() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
-
-
-
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    heading.background.color = '#003A79',
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "left") %>%
-  #Apply new style to all column headers
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  #Apply different style to the title
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  #Apply different style to the title
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-  text_transform(
-    #Apply a function to a column
-    locations = cells_body(c(flag_URL)),
-    fn = function(x) {
-      #Return an image of set dimensions
-      web_image(
-        url = x,
-        height = 20
-      )
-    }
-  ) %>%
-  #Hide column header flag_URL and reduce width
-  cols_width(c(flag_URL) ~ px(30)) %>%
-  cols_label(flag_URL = "") %>%
-  cols_hide(c(iso2)) %>%
-  cols_align(
-    align = "left",
-    columns = everything()
-  )
 exporters_tbl
 gt::gtsave(exporters_tbl, 'tables/01_exporters.png')
 
@@ -292,48 +274,13 @@ importers_tbl <-
   cols_label(country = 'Country',
              travel_balance_1519 = 'Billions of USD',
              travel_balance_1519_share = 'Percent of GDP') %>%
-  tab_header(title = md('Economies with largest net expenditures on international travel'),
+  tab_header(title = md('Table 2: Economies with largest net expenditures on international travel'),
              subtitle = md('Average from 2015 to 2019')) %>%
   tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics, and national sources') %>%
   fmt_currency(c(travel_balance_1519),
                decimals = 1) %>%
   fmt_number(c(travel_balance_1519_share),
               decimals = 1) %>%
-
-
-  opt_all_caps() %>%
-  opt_row_striping() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  #Apply different style to the title
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-
-
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    heading.background.color = '#003A79',
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "left") %>%
   text_transform(
     #Apply a function to a column
     locations = cells_body(c(flag_URL)),
@@ -353,115 +300,11 @@ importers_tbl <-
   cols_align(
     align = "left",
     columns = everything()
-  )
+  ) %>%
+  my_theme()
 
 gt::gtsave(importers_tbl, 'tables/02_importers.png')
-# Table 3: Large travel ---------------------------------------------------
-`%notin%` <- Negate(`%in%`)
-islands <- c('Turks and Caicos Islands',
-             'Sint Maarten, Kingdom of the Netherlands',
-             'Anguilla',
-             'Cayman Islands',
-             'Curaçao, Kingdom of the Netherlands',
-             'French Polynesia')
-in_sample <- services %>%
-  select(country, travel_balance_1519_share, population_2019, gdp_2019) %>%
-  filter(country %notin% islands) %>%
-  arrange(desc(travel_balance_1519_share)) %>%
-  head(38) %>%
-  mutate(sample = 'Sample countries')
 
-not_sample <-
-  services %>%
-  select(country, travel_balance_1519_share, population_2019, gdp_2019) %>%
-  filter(country %in% islands) %>%
-  arrange(desc(travel_balance_1519_share)) %>%
-  mutate(sample = 'Not in sample')
-
-
-full <-  bind_rows(in_sample, not_sample) %>%
-    relocate(sample, .before = everything())
-
-
-large_travel_table <-
-  full %>%
-  group_by(sample) %>%
-    gt(groupname_col = 'sample',
-       rowname_col = 'country') %>%
-    tab_style(
-      locations = cells_title(groups = "title"),
-      style     = list(
-        cell_text(weight = "bold", size = 24)
-      )
-    ) %>%
-  summary_rows(
-    groups = TRUE,
-    columns = where(is.numeric),
-    fns = list(
-      Mean = ~mean(., na.rm = TRUE),
-      Median = ~median(.,na.rm = TRUE)),
-    decimals = 1,
-  ) %>%
-
-  opt_row_striping() %>%
-
-  cols_label(travel_balance_1519_share = html('Travel balance (percent of GDP)<br>\tAverage 2015-2019'),
-             population_2019 = html('Population<br>millions<br>2019'),
-             gdp_2019 = html('GDP<br>billions<br>2019'),
-             country = html('Country<br>'))%>%
-  cols_align(
-    align = "left",
-    columns = c(country,
-                   travel_balance_1519_share,
-                   population_2019,
-                   gdp_2019)
-  ) %>%
-  tab_header(title = md('Economies with large net revenues from international travel (in percent of GDP)')) %>%
-  tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
-  fmt_currency(c(gdp_2019)) %>%
-  fmt_number(columns = c(population_2019),
-             decimals = 1) %>%
-  fmt_number(c(travel_balance_1519_share),
-             decimals = 1) %>%
-  fmt_currency(c(gdp_2019),
-               decimals = 1) %>%
-  opt_all_caps() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  #Apply different style to the title
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-
-
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    heading.background.color = '#003A79',
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "center",
-    row_group.background.color = "#D0D3D4")
-
-
-gtsave(large_travel_table,
-       'tables/03_large_travel.png')
 # Revenues ----------------------------------------------------------------
 # Countries with net revenues from international travel exceeding 5 percent
 #(list of 37 countries, with average net travel revenues)
@@ -495,8 +338,6 @@ revenues %>%
 tourism <- readRDS('data/tourism.rds') %>%
   filter(country != 'Euro Area')
 
-our_summary(balance, c('current_account'))
-names(tourism)
 balance <- tourism %>%
   select(country,
          current_account_2015_2019,
@@ -510,9 +351,6 @@ balance <- tourism %>%
   rename_with(.cols = ends_with('2019'),
               .fn = ~stringr::str_replace(.x, '_2015_2019', ''))
 
-balance %>%
-  select(where(is.numeric)) %>%
-  map_df(.f = ~ broom::tidy(skimr::skim(.x)), .id = "variable")
 
 balance_summary <-
   balance %>%
@@ -530,62 +368,14 @@ balance_summary <-
 balance_tbl <-
   balance_summary %>%
   gt() %>%
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
   cols_label(category = '') %>%
-
-  opt_row_striping() %>%
-  tab_header(title = md('Tourism-dependent economies: stylized facts'),
-             subtitle = md('Percent of GDP, 2015-19 averages')) %>%
-  tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
+  tab_header(title = md('Table 3. Tourism-dependent economies:<br>current account balance and composition'),
+             subtitle = md('(Percent of GDP, 2015-19 averages)')) %>%
+  tab_source_note(md('**Source:** Author’s calculation based on IMF, Balance of Payments Statistics and national sources')) %>%
   fmt_number(where(is.numeric),
              decimals = 1) %>%
   fmt_number(c(Observations),
              decimals = 0) %>%
-  opt_all_caps() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  #Apply different style to the title
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-  # data_color(
-  #   columns = -c('category', 'Observations'),
-  #   colors = scales::col_numeric(
-  #     c("#f87274", "#ffeb84",  "#63be7b"),
-  #     domain = range(balance_summary %>%
-  #                      select(where(is.numeric), -Observations)))
-  # ) %>%
-
-
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    heading.background.color = '#003A79',
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "center",
-    row_group.background.color = "#D0D3D4") %>%
   tab_style(
     style = cell_text(indent = px(25),
                       style = 'italic'),
@@ -594,9 +384,10 @@ balance_tbl <-
 
       rows = category %in% c("Oil balance", 'Transportation balance')
     )
-  )
+  ) %>%
+  my_theme()
 
-gtsave(balance_tbl, 'tables/04_stylized_facts.png')
+gtsave(balance_tbl, 'tables/03_ca_2019.png')
 
 
 # Table 5 -----------------------------------------------------------------
@@ -679,14 +470,6 @@ creditor_tbl <-
   mutate(obs = c(35, 81, 66, 37, 81, 67)) %>%
   gt(
      rowname_col = 'tourism_type') %>%
-  tab_style(
-    locations = cells_title(groups = "title"),
-    style     = list(
-      cell_text(weight = "bold", size = 24)
-    )
-  ) %>%
-
-  opt_row_striping() %>%
   tab_header(title = md('Size and creditor position: tourism-dependent economies and other economies'),
              subtitle = md('Percent of GDP, 2015-19 averages')) %>%
   tab_source_note('Source: Author’s calculation based on IMF, Balance of Payments Statistics and national sources') %>%
@@ -694,30 +477,6 @@ creditor_tbl <-
              decimals = 1) %>%
   fmt_number(c(obs),
              decimals = 0) %>%
-  opt_all_caps() %>%
-  opt_table_font(
-    font = list(
-      google_font("Roboto"),
-      default_fonts()))  %>%
-  tab_style(
-    locations = cells_column_labels(columns = everything()),
-    style     = list(
-      #Give a thick border below
-      cell_borders(sides = "bottom", weight = px(3)),
-      #Make text bold
-      cell_text(weight = "bold")
-    )
-  ) %>%
-  tab_options(
-    column_labels.border.top.width = px(5),
-    column_labels.border.top.color = "transparent",
-    table.border.top.color = "transparent",
-    table.border.bottom.color = "transparent",
-    heading.background.color = '#003A79',
-    data_row.padding = px(5),
-    source_notes.font.size = 12,
-    heading.align = "center",
-    row_group.background.color = "#D0D3D4") %>%
   tab_row_group(label = html('GDP per capita<br>(2019)'),
                 rows = variable == 'gdp_per_capita_2019') %>%
   tab_row_group(label = html('International investment position<br>(percent of GDP, 2019)'),
@@ -726,7 +485,8 @@ creditor_tbl <-
   cols_hide(variable) %>%
   fmt_number(columns = where(is.numeric),
              decimals = 0,
-             drop_trailing_zeros = TRUE)
+             drop_trailing_zeros = TRUE) %>%
+  my_theme()
 
 gtsave(creditor_tbl, 'tables/05_creditor_position.png')
 
@@ -932,7 +692,7 @@ symmetric_limits <- function (x) {
   max <- max(abs(x))
   c(-max, max)
 }
-adjustment <- read_excel("data/tables.xlsx",
+adjustment <- readxl::read_excel("data/tables.xlsx",
                      sheet = "Data_adjustment", skip = 1) %>%
   janitor::clean_names() %>%
   drop_na() %>%
@@ -945,6 +705,7 @@ adjustment %>%
                         'positive',
                         'negative')) %>%
   arrange(desc(median)) %>%
+  mutate(category = snakecase::to_sentence_case(category)) %>%
   ggplot(aes(x = median, y = reorder(category, -median), fill = sign)) +
   geom_col(width = 0.5,
            show.legend = FALSE) +
@@ -960,60 +721,15 @@ adjustment %>%
     fill = "#FFFFFF",
     label.size = 0
   ) +
-  scale_fill_manual(values = c('#ED3A35', '#1479BB'),
+ scale_fill_manual(values = c('#ED3A35', '#1479BB'),
                     ) +
   scale_x_continuous(limits = symmetric_limits,
                      ) +
   labs(title = 'Tourism-dependent economies: <br>Median external adjustment in 2020',
        x = NULL,
-       y = NULL)+
-  ggthemes::theme_tufte() +
-  theme(
-    text =
-      element_text(
-        family = "Roboto",
-        face = "plain",
-        colour = "black",
-        size = 16,
-        lineheight = 0.9,
-        hjust = 0.5,
-        vjust = 0.5,
-        angle = 0,
-        margin = margin(),
-        debug = FALSE
-      ),
-    plot.title =  ggtext::element_textbox_simple(
-      # font size "large"
-      size = rel(1.2),
-      color = "#003A79",
-      face = "bold",
-      hjust = 0,
-      vjust = 1,
-      margin = margin(b = 8)
-    ),
-    plot.title.position = "plot",
-    plot.subtitle = ggtext::element_textbox_simple(
-      # font size "regular"
-      hjust = 0,
-
-      vjust = 1,
-      margin = margin(b = 8)
-    ),
-    plot.caption = ggtext::element_textbox_simple(
-      # font size "small"
-      size = rel(0.8),
-      vjust = 1,
-      family = "Roboto Light",
-      color = "#666666",
-      hjust = 0,
-      margin = margin(t = 8)
-    ),
-    plot.caption.position = "plot",
-    plot.background =    element_rect(colour = "#FAFAFA"),
-    axis.text.y = element_text(size = 14, hjust = 1),
-    plot.margin = margin(rep(15, 4)),
-    panel.background = element_rect(color = "#FAFAFA")
-  )
+       y = NULL,
+       caption = '**Source:** Author’s calculations based on IMF, Balance of Payments Statistics and national sources')+
+  theme_brookings()
 
   ggsave(
     here::here('figures', 'adjustment.png'),
@@ -1126,3 +842,94 @@ ggsave(
   type = 'cairo',
   bg = '#FAFAFA'
 )
+
+
+# Passenger ---------------------------------------------------------------
+
+library('countrycode')
+library('glue')
+library('gt')
+passengers <- tourism %>%
+  select(country, country_code, bpas_2015_2019) %>%
+  arrange(desc(bpas_2015_2019)) %>%
+  head(10) %>%
+  add_flags()
+
+transport <-
+  tourism %>%
+  select(country, country_code, transportation_balance_2015_2019) %>%
+  arrange(desc(transportation_balance_2015_2019)) %>%
+  head(10) %>%
+  mutate(country = case_when(country == 'Hong Kong SAR' ~ "Hong Kong SAR*",
+                             country == "United Arab Emirates" ~ "United Arab Emirates*",
+                             TRUE ~ country)) %>%
+  add_flags() %>%
+  rename(country_transport = country) %>%
+  select(flag_URL_transport = flag_URL, country_transport, transportation_balance_2015_2019)
+
+
+passenger_tbl <-
+  transport %>%
+  bind_cols(passengers) %>%
+  gt() %>%
+  tab_style(
+    locations = cells_title(groups = "title"),
+    style     = list(
+      cell_text(weight = "bold", size = 24)
+    )
+  ) %>%
+  text_transform(
+    #Apply a function to a column
+    locations = cells_body(c(flag_URL, flag_URL_transport)),
+    fn = function(x) {
+      #Return an image of set dimensions
+      web_image(
+        url = x,
+        height = 20
+      )
+    }
+  ) %>%
+  #Hide column header flag_URL and reduce width
+  cols_width(c(flag_URL, flag_URL_transport) ~ px(30)) %>%
+  cols_label(flag_URL = "",
+             flag_URL_transport = "",
+             country_transport = "Country",
+             bpas_2015_2019 = md("Passenger transport<br>(pct of GDP)"),
+             transportation_balance_2015_2019 = md('Transport<br>(pct of GDP)')) %>%
+  cols_hide(c(iso2, country_code)) %>%
+  cols_align(
+    align = "left",
+    columns = -c(flag_URL, flag_URL_transport)
+  ) %>%
+
+  opt_row_striping() %>%
+  tab_header(title = md('Economies with largest net international transportation revenues in percent of GDP')) %>%
+  tab_source_note(md("**Note**: economies denoted with an asterisk do not provide a breakdown of transport revenues into passenger revenues, freight, and others.<br>**Source**: author's calculations based on IMF Balance of Payments statistics and naitonal sources.")) %>%
+  fmt_number(where(is.numeric),
+             decimals = 1) %>%
+  cols_label(bpas_2015_2019 = md('Passenger Transport<br>(pct of GDP)')) %>%
+  opt_all_caps() %>%
+  opt_table_font(
+    font = list(
+      google_font("Roboto"),
+      default_fonts()))  %>%
+  tab_style(
+    locations = cells_column_labels(columns = everything()),
+    style     = list(
+      #Give a thick border below
+      cell_borders(sides = "bottom", weight = px(5)),
+      #Make text bold
+      cell_text(weight = "bold")
+    )
+  ) %>%
+  tab_options(
+    column_labels.border.top.width = px(5),
+    column_labels.border.top.color = "transparent",
+    table.border.top.color = "transparent",
+    table.border.bottom.color = "transparent",
+    heading.background.color = '#003A79',
+    data_row.padding = px(5),
+    source_notes.font.size = 12,
+    heading.align = "center",
+    row_group.background.color = "#D0D3D4")
+gtsave(passenger_tbl, 'tables/05_transportation_and_passenger_revenues.png')

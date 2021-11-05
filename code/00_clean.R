@@ -16,6 +16,10 @@ stringr::str_replace(var_name, pattern = '1519', replacement = '2015_2019')
 tourism <-
   tourism_raw %>%
   rename(gdp_per_capita_2019 = gdppc_19) %>%
+  rename(current_account_forecast_2019 = ca19_19,
+         current_account_forecast_2020 = ca19_20,
+         current_account_forecast_ration = ca_2019f,
+         current_account_share_change_2019 = ca_19) %>%
   # Want to change variables ending in 1519 to be 2015_2019
   rename_with(.cols = ends_with('1519'),
               .fn = ~ stringr::str_replace(string = .x,
@@ -124,10 +128,15 @@ tourism <-
          western_hemisphere = weshem,
          transportation = trans,
          transportation_3 = trans3,
-         service_2014_2019 = serv_2014_2019
+         service_2014_2019 = serv_2014_2019,
+         current_account_deviation_2020 = current_account_dif_2020
 
-  )
+  ) %>%
+  mutate(economy = as_factor(if_else(advaned_economies == 1,
+                           'advanced',
+                           'emerging'))) %>%
 
+  select(-advaned_economies)
 saveRDS(tourism, 'data/tourism.rds')
 
 
